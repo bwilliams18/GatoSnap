@@ -8,7 +8,7 @@ const TaskCard = ({ task }) => {
     <div className="flex flex-col rounded bg-slate-700 p-3 m-2">
       <div className="flex">
         <b>{task.name}</b>
-        {task.status === "pending" && (
+        {task.status !== "running" && (
           <button
             className="bg-red-500 hover:bg-red-700 text-white font-bold px-1 text-sm rounded"
             onClick={() => {
