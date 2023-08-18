@@ -49,11 +49,11 @@ def worker():
                     transfer_files(*task.args)
                 else:
                     print("Unknown function {}".format(task.func))
+                task.status = TaskStatus.SUCCESS
             except Exception as e:
                 print("Task failed {}".format(task.name))
                 print(e)
                 task.status = TaskStatus.FAILED
-            task.status = TaskStatus.COMPLETE
             session.commit()
         q.task_done()
 
