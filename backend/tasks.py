@@ -13,8 +13,11 @@ from plex_api import get_client
 from plexapi.exceptions import NotFound
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+import logging
+logger = logging.getLogger(__name__)
 
 q = queue.Queue()
+
 
 
 def start_task(task_id):
@@ -33,7 +36,7 @@ def worker():
             task = session.execute(
                 select(Task).where(Task.id == task_id)
             ).scalar_one_or_none()
-            print("Starting task {}".format(task.name))
+            logger.info("Starting task {}".format(task.name))
             task.status = TaskStatus.RUNNING
             session.commit()
             try:
@@ -48,11 +51,11 @@ def worker():
                 elif task.func == "transfer_files":
                     transfer_files(*task.args)
                 else:
-                    print("Unknown function {}".format(task.func))
+                    logger.warn("Unknown function {}".format(task.func))
                 task.status = TaskStatus.SUCCESS
             except Exception as e:
-                print("Task failed {}".format(task.name))
-                print(e)
+                logger.error("Task failed {}".format(task.name))
+                logger.error(e)
                 task.status = TaskStatus.FAILED
             session.commit()
         q.task_done()
@@ -98,7 +101,7 @@ def get_files(sd_id, task_id):
                 )
                 session.add(file)
                 session.commit()
-                print("File added for {}".format(item.title))
+                logger.info("File added for {}".format(item.title))
             if item.type == "episode":
                 for episode in item.show().episodes(played=False):
                     if (
@@ -142,11 +145,11 @@ def check_files(sd_id, task_id):
             item = plex_client.library.fetchItem(file.rating_key)
             if os.path.exists(file.storage_path):
                 if item.isPlayed:
-                    print("Removing '{}' as it's been played".format(file))
+                    logger.info("Removing '{}' as it's been played".format(file))
                     os.remove(file.storage_path)
                     file.status = FileStatus.WATCHED
             else:
-                print("Marking '{}' as played".format(file))
+                logger.info("Marking '{}' as played".format(file))
                 item.markPlayed()
                 file.status = FileStatus.WATCHED
                 try:
@@ -186,11 +189,14 @@ def transfer_file(file_id, task_id):
         session.commit()
 
 
-def transfer_files(sd_id):
+def transfer_files(sd_id,task_id):
     with Session(database.engine) as session:
         sd = session.execute(
             select(StorageDevice).where(StorageDevice.id == sd_id)
-        ).scaler_one_or_none()
+        ).scalar_one_or_none()
+        p_task = session.execute(
+            select(Task).where(Task.id == task_id)
+        ).scalar_one_or_none()
         files = (
             session.execute(
                 select(File).where(
@@ -200,6 +206,9 @@ def transfer_files(sd_id):
             .scalars()
             .all()
         )
+        p_task.total = len(files)
+        p_task.progress = 0
+        session.commit()
         for file in files:
             file.storage_path = sd.get_drive_path(file.remote_path)
             if not os.path.exists(file.local_path):
@@ -215,6 +224,7 @@ def transfer_files(sd_id):
                     total=file.file_size,
                 )
                 session.add(task)
+                p_task.progress += 1
                 session.commit()
                 start_task(task.id)
             else:
@@ -241,6 +251,6 @@ if __name__ == "__main__":
     while True:
         #  Wait for next request from client
         message = int.from_bytes(socket.recv(), "little", signed=False)
-        print("Received request: %s" % message)
+        logger.info("Received request: %s" % message)
         q.put(message)
         socket.send(b"Received")
