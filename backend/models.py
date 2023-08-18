@@ -74,7 +74,6 @@ class File(Base):
     storage_path = sa.Column(sa.String, nullable=True)
     rating_key = sa.Column(sa.Integer, nullable=False)
     file_size = sa.Column(sa.Integer, nullable=False)
-    md5 = sa.Column(sa.String, nullable=False)
     status = sa.Column(sa.Enum(FileStatus), nullable=False, default=FileStatus.MISSING)
 
     constraints = [

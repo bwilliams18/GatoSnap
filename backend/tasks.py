@@ -7,7 +7,6 @@ import threading
 import time
 
 import database
-import ormsgpack
 import zmq
 from models import File, FileStatus, StorageDevice, Task, TaskStatus, get_local_path
 from plex_api import get_client
@@ -23,7 +22,7 @@ def start_task(task_id):
     #  Socket to talk to server
     socket = context.socket(zmq.REQ)
     socket.connect("tcp://localhost:5555")
-    socket.send(ormsgpack.packb(task_id))
+    socket.send(task_id.to_bytes(2, "little", signed=False))
     message = socket.recv()
 
 
@@ -86,16 +85,16 @@ def get_files(sd_id, task_id):
             ).scalar_one_or_none()
             if file is None:
                 local_path = get_local_path(item.media[0].parts[0].file)
-                with open(local_path, "rb") as f:
-                    digest = hashlib.file_digest(f, "md5")
-                    md5 = digest.hexdigest()
+                if item.type == "episode":
+                    title = item.grandparentTitle + " - " + item.title
+                else:
+                    title = item.title
                 file = File(
-                    title=item.title,
+                    title=title,
                     rating_key=item.ratingKey,
                     remote_path=item.media[0].parts[0].file,
                     storage_device_id=sd.id,
                     file_size=os.path.getsize(local_path),
-                    md5=md5,
                 )
                 session.add(file)
                 session.commit()
@@ -205,10 +204,9 @@ def transfer_files(sd_id):
             file.storage_path = sd.get_drive_path(file.remote_path)
             if not os.path.exists(file.local_path):
                 raise Exception("File does not exist: {}".format(file.local_path))
-            with open(file.storage_path, "rb") as f:
-                digest = hashlib.file_digest(f, "md5")
-                md5 = digest.hexdigest()
-            if (not os.path.exists(file.storage_path)) or (file.md5 != md5):
+            if (not os.path.exists(file.storage_path)) or (
+                file.file_size != os.path.getsize(file.storage_path)
+            ):
                 task = Task(
                     name="Transfer {} to {}".format(file.title, sd.name),
                     func="transfer_file",
@@ -242,7 +240,7 @@ if __name__ == "__main__":
         threading.Thread(target=worker, daemon=True).start()
     while True:
         #  Wait for next request from client
-        message = ormsgpack.unpackb(socket.recv())
+        message = int.from_bytes(socket.recv(), "little", signed=False)
         print("Received request: %s" % message)
         q.put(message)
         socket.send(b"Received")
