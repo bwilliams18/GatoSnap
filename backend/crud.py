@@ -42,11 +42,7 @@ def get_files_for_storage_device(
     db: Session, device_id: int, skip: int = 0, limit: int = 100
 ):
     return (
-        db.query(models.File)
-        .filter(models.File.storage_device_id == device_id)
-        .offset(skip)
-        .limit(limit)
-        .all()
+        db.query(models.File).filter(models.File.storage_device_id == device_id).all()
     )
 
 
