@@ -1,7 +1,11 @@
 import enum
 import os
 
+import dotenv
 import sqlalchemy as sa
+from dotenv import load_dotenv
+
+load_dotenv()
 
 SERVER_BASE_PATH = os.environ.get("SERVER_BASE_PATH", "/media/")
 LOCAL_BASE_PATH = os.environ.get("LOCAL_BASE_PATH", "/Volumes/Media/")
