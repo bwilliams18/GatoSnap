@@ -4,7 +4,7 @@ import { useCreateTask, useGetFiles } from "./query";
 
 const StorageDeviceCard = ({ storageDevice }) => {
   const { mutate: createTask } = useCreateTask();
-  const { data: files } = useGetFiles(storageDevice.id);
+  const { data: files, re } = useGetFiles(storageDevice.id);
   console.log(files);
   return (
     <div className="rounded bg-slate-700 p-3 m-2">
@@ -47,18 +47,30 @@ const StorageDeviceCard = ({ storageDevice }) => {
           Transfer Files
         </button>
       </div>
-      <Disclosure>
-        <Disclosure.Button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded my-2">
-          Files
+      <Disclosure className="rounded p-1 " as="div">
+        <Disclosure.Button className="">
+          {files?.length} Files
         </Disclosure.Button>
         <Disclosure.Panel className="flex flex-col gap-2 m-2">
           {files?.map(file => (
             <div key={file.id} className="text-white p-2 bg-slate-600 rounded">
-              <b>{file.title}</b> <i>{file.status}</i>{" "}
-              {(file.file_size / 1024 / 1024 / 1024).toFixed(2)} GB
+              <b>{file.title}</b>
+              <span className="text-sm px-1 rounded bg-slate-800 mx-1">
+                {(file.file_size / 1024 / 1024 / 1024).toFixed(2)} GB
+              </span>
+              <i
+                className={`${
+                  file.status === "missing"
+                    ? "bg-red-600"
+                    : file.status === "watched"
+                    ? "bg-blue-700"
+                    : "bg-green-600"
+                } text-sm px-1 rounded mx-1`}>
+                {file.status}
+              </i>
               {file.status === "missing" && (
                 <button
-                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold ml-1 px-1 text-sm rounded"
+                  className="border border-white bg-blue-500 hover:bg-blue-700 text-white font-bold mx-1 px-1 text-sm rounded"
                   onClick={() => {
                     createTask({
                       name: "Transfer File",
@@ -72,7 +84,7 @@ const StorageDeviceCard = ({ storageDevice }) => {
               )}
               {file.status === "synced" && (
                 <button
-                  className="bg-green-500 hover:bg-green-700 text-white font-bold ml-1 px-1 text-sm rounded"
+                  className="border border-white bg-green-500 hover:bg-green-700 text-white font-bold ml-1 px-1 text-sm rounded"
                   onClick={() => {
                     createTask({
                       name: "Mark Watched",
