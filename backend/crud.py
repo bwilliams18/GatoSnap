@@ -1,5 +1,6 @@
 import models
-from plex_api import get_account, get_client, save_auth_token
+import schemas
+from plex_api import get_account, get_client, save_auth_token, save_base_url
 from sqlalchemy.orm import Session
 from tasks import start_task
 
@@ -50,16 +51,39 @@ def get_files(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.File).offset(skip).limit(limit).all()
 
 
-def save_plex_auth(username: str, password: str):
-    save_auth_token(username, password)
+def update_file(db: Session, file_id: int, file: schemas.FileUpdate):
+    db_file = db.query(models.File).filter(models.File.id == file_id).first()
+    db_file.status = file.status
+    db.commit()
+    db.refresh(db_file)
+    return db_file
+
+
+def check_config():
+    try:
+        auth_token = get_account()
+    except:
+        auth_token = None
+    try:
+        server = get_client()
+    except:
+        server = None
+    return {"auth_token": bool(auth_token), "server": bool(server)}
+
+
+def save_plex_auth(login: schemas.PlexLogin):
+    save_auth_token(login.username, login.password)
     get_account()
-    return True
+    return {"success": True}
 
 
-def save_plex_server(base_url: str):
-    save_auth_token(base_url)
+def save_plex_server(server: schemas.PlexServer):
+    account = get_account()
+    resource = account.resource(server.server)
+    _server = resource.connect()
+    save_base_url(_server._baseurl)
     get_client()
-    return True
+    return {"success": True}
 
 
 def get_servers():

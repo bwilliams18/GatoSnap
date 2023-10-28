@@ -1,5 +1,20 @@
+from datetime import date, datetime, time, timedelta
+
 from models import FileStatus, TaskStatus
 from pydantic import BaseModel
+
+
+class PlexLogin(BaseModel):
+    username: str
+    password: str
+
+
+class PlexAuth(BaseModel):
+    success: bool
+
+
+class ServerName(BaseModel):
+    server: str
 
 
 class TaskBase(BaseModel):
@@ -8,6 +23,9 @@ class TaskBase(BaseModel):
     func: str
     args: list
     kwargs: dict
+    created: datetime | None
+    started: datetime | None
+    finished: datetime | None
     progress: float | None
     total: float | None
     status: TaskStatus = TaskStatus.PENDING
@@ -15,11 +33,14 @@ class TaskBase(BaseModel):
 
 class Task(TaskBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TaskCreate(TaskBase):
     id: None = None
+    created: None = None
+    started: None = None
+    finished: None = None
     func: str
     progress: None = None
     total: None = None
@@ -32,15 +53,17 @@ class StorageDeviceBase(BaseModel):
     sync_on_deck: bool
     sync_continue_watching: bool
     sync_playlist: str | None
+    connected: bool | None = None
 
 
 class StorageDevice(StorageDeviceBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class StorageDeviceCreate(StorageDeviceBase):
     id: None = None
+    connected: None = None
     name: str
     base_path: str
     sync_on_deck: bool
@@ -61,7 +84,18 @@ class FileBase(BaseModel):
 
 class File(FileBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+
+class FileUpdate(FileBase):
+    id: int
+    storage_device_id: None = None
+    title: None = None
+    remote_path: None = None
+    storage_path: None = None
+    rating_key: None = None
+    file_size: None = None
+    status: FileStatus = FileStatus.MISSING
 
 
 class PlexServer(BaseModel):
@@ -73,4 +107,4 @@ class PlexServer(BaseModel):
     sourceTitle: str | None
 
     class Config:
-        orm_mode = True
+        from_attributes = True

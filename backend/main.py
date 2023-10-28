@@ -4,9 +4,11 @@ import crud
 import database
 import models
 import schemas
+import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from plexapi.exceptions import Unauthorized
 from sqlalchemy.orm import Session
 
 app = FastAPI(title="my app root")
@@ -15,9 +17,20 @@ api_app = FastAPI()
 origins = [
     "http://localhost",
     "http://localhost:3000",
+    "http://borth",
+    "http://borth:3000",
+    "http://borth:8000",
 ]
 
 app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+api_app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
@@ -76,6 +89,13 @@ def read_files(
     )
 
 
+@api_app.patch(
+    "/storage_devices/{device_id}/files/{file_id}/", response_model=schemas.File
+)
+def update_file(file_id: int, file: schemas.FileUpdate, db: Session = Depends(get_db)):
+    return crud.update_file(db=db, file_id=file_id, file=file)
+
+
 @api_app.get("/storage_paths/")
 def read_storage_paths(path: str = models.STORAGE_BASE_PATH):
     if not path.startswith(models.STORAGE_BASE_PATH):
@@ -87,13 +107,24 @@ def read_storage_paths(path: str = models.STORAGE_BASE_PATH):
     return [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
 
 
-@api_app.post("/plex/auth/")
-def save_plex_auth(username: str, password: str):
-    return crud.save_plex_auth(username, password)
+@api_app.get("/check_config/")
+def check_config():
+    return crud.check_config()
 
 
-@api_app.post("/plex/server/")
-def save_plex_server(server: str):
+@api_app.post("/plex/auth/", response_model=schemas.PlexAuth)
+def save_plex_auth(login: schemas.PlexLogin):
+    try:
+        return crud.save_plex_auth(login)
+    except Unauthorized as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@api_app.post(
+    "/plex/servers/",
+    response_model=schemas.PlexAuth,
+)
+def save_plex_server(server: schemas.ServerName):
     return crud.save_plex_server(server)
 
 
@@ -105,3 +136,6 @@ def get_plex_servers():
 app.mount("/api", api_app)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,38 +1,88 @@
+import moment from "moment";
 import React from "react";
 import ProgressBar from "./ProgressBar";
 import { useDeleteTask } from "./query";
+import { bitsToGB } from "./util";
 
 const TaskCard = ({ task }) => {
   const { mutate: deleteTask } = useDeleteTask();
+  console.log(task.started);
   return (
-    <div className="flex flex-col rounded bg-slate-700 p-3 m-2">
-      <div className="flex">
+    <div className="flex flex-col rounded bg-slate-700 p-3 m-2 gap-y-1">
+      <div className="flex gap-x-1">
         <b>{task.name}</b>
         {task.status !== "running" && (
           <button
-            className="bg-red-500 hover:bg-red-700 text-white font-bold px-1 text-sm rounded"
+            className={`text-white font-bold px-1 text-sm rounded
+             ${
+               task.status === "success"
+                 ? "bg-green-500 hover:bg-green-700"
+                 : task.status === "failed"
+                 ? "bg-red-500 hover:bg-red-700"
+                 : "bg-blue-500 hover:bg-blue-700"
+             }
+            `}
             onClick={() => {
               deleteTask(task.id);
             }}>
-            Cancel
+            {task.status === "success" ? "Clear" : "Cancel"}
           </button>
         )}
       </div>
       <div className="flex">
-        <ProgressBar progress={task.progress} total={task.total} />
-        {task.func === "transfer_file" ? (
-          <span className="ml-2">
-            {(task.progress / 1000000000).toFixed(2)}GB/
-            {(task.total / 1000000000).toFixed(2)}GB
-          </span>
-        ) : (
-          <span className="ml-2">
-            {task.progress}/{task.total}
-          </span>
-        )}
+        <ProgressBar
+          progress={task.progress}
+          total={task.total}
+          barColor={
+            task.status === "success"
+              ? "bg-green-500"
+              : task.status === "failed"
+              ? "bg-red-500"
+              : task.status === "running"
+              ? "bg-blue-500"
+              : "bg-gray-500"
+          }
+        />
       </div>
+      {task.func === "transfer_file" && task.status === "running" ? (
+        <div className="flex divide-x gap-x-1">
+          <div className="text-xs text-gray-400 text-center grow">
+            {bitsToGB(task.progress)}/{bitsToGB(task.total)}
+          </div>
+          <div className="text-xs text-gray-400 text-center grow">
+            {(
+              bperSec(task.progress, task.total, task.started) /
+              1024 /
+              1024
+            ).toFixed(2)}
+            Mbps
+          </div>
+          <div className="text-xs text-gray-400 text-center grow">
+            {moment
+              .duration(
+                (task.total - task.progress) /
+                  bperSec(task.progress, task.total, task.started),
+                "seconds"
+              )
+              .humanize()}
+          </div>
+          <div className="text-xs text-gray-400 text-center grow">
+            {moment()
+              .add(
+                (task.total - task.progress) /
+                  bperSec(task.progress, task.total, task.started),
+                "seconds"
+              )
+              .format("HH:mm:ss")}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+};
+
+const bperSec = (progress, total, started) => {
+  return progress / moment().diff(moment.utc(started).local(), "seconds");
 };
 
 export default TaskCard;

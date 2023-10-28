@@ -76,11 +76,8 @@ def get_account():
 def get_client():
     base_url = get_base_url()
     auth_token = get_auth_token()
-    session = requests.Session()
-    session.verify = False
     plex = PlexServer(
         base_url,
         auth_token,
-        session,
     )
     return plex

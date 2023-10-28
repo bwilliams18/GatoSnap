@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 
+var host = window.location.protocol + "//" + window.location.hostname;
+
 export const gatoClient = axios.create({
-  baseURL:
-    process.env.NODE_ENV === "development"
-      ? "http://localhost:8000/api"
-      : "/api",
+  baseURL: process.env.NODE_ENV === "development" ? `${host}:8000/api` : "/api",
   crossDomain: "true",
   withCookie: true,
   timeout: 1000 * 30,
@@ -21,11 +20,45 @@ export const gatoClient = axios.create({
   xsrfHeaderName: "X-CSRFToken",
 });
 
-export const useGetTasks = () =>
-  useQuery(["tasks"], () => gatoClient.get("/tasks/").then(res => res.data), {
+export const useGetCheckConfig = () =>
+  useQuery(["check_config"], () =>
+    gatoClient.get("/check_config/").then(res => res.data)
+  );
+
+export const useAddAuth = () => {
+  const queryClient = useQueryClient();
+  return useMutation(auth => gatoClient.post("/plex/auth/", auth), {
+    onSuccess: () => {
+      queryClient.invalidateQueries("check_config");
+    },
+  });
+};
+
+export const useGetServers = () =>
+  useQuery(["servers"], () =>
+    gatoClient.get("/plex/servers/").then(res => res.data)
+  );
+
+export const useAddServer = () => {
+  const queryClient = useQueryClient();
+  return useMutation(server => gatoClient.post("/plex/servers/", server), {
+    onSuccess: () => {
+      queryClient.invalidateQueries("servers");
+    },
+  });
+};
+
+export const useGetTasks = (
+  params = {
     refetchInterval: 1000,
     refetchIntervalInBackground: false,
-  });
+  }
+) =>
+  useQuery(
+    ["tasks"],
+    () => gatoClient.get("/tasks/").then(res => res.data),
+    params
+  );
 
 export const useCreateTask = () => {
   const queryClient = useQueryClient();
@@ -68,3 +101,22 @@ export const useGetFiles = storage_device_id =>
       .get(`/storage_devices/${storage_device_id}/files/`)
       .then(res => res.data)
   );
+
+export const useUpdateFile = () => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    ({ storage_device_id, file_id, status }) =>
+      gatoClient.patch(
+        `/storage_devices/${storage_device_id}/files/${file_id}/`,
+        {
+          id: file_id,
+          status,
+        }
+      ),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries("files");
+      },
+    }
+  );
+};
