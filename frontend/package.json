@@ -13,7 +13,7 @@
     "@testing-library/user-event": "^13.5.0",
     "@tippyjs/react": "^4.2.6",
     "autoprefixer": "^10.4.15",
-    "axios": "^1.4.0",
+    "axios": "^1.6.0",
     "chonky": "^2.3.2",
     "formik": "^2.4.3",
     "lodash": "^4.17.21",
