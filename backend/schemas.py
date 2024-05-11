@@ -46,6 +46,20 @@ class TaskCreate(TaskBase):
     total: None = None
 
 
+class TaskUpdate(TaskBase):
+    id: None = None
+    name: None = None
+    func: None = None
+    args: None = None
+    kwargs: None = None
+    created: None = None
+    started: None = None
+    finished: None = None
+    progress: None = None
+    total: None = None
+    status: TaskStatus = TaskStatus.PENDING
+
+
 class StorageDeviceBase(BaseModel):
     id: int
     name: str
@@ -69,6 +83,11 @@ class StorageDeviceCreate(StorageDeviceBase):
     sync_on_deck: bool
     sync_continue_watching: bool
     sync_playlist: str | None = None
+
+
+class FileStatusUpdate(BaseModel):
+    status: FileStatus
+    file_ids: list[int]
 
 
 class FileBase(BaseModel):

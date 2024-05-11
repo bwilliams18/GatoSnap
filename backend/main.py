@@ -1,9 +1,13 @@
+import asyncio
 import os
+import threading
+from contextlib import asynccontextmanager
 
 import crud
 import database
 import models
 import schemas
+import tasks
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,12 +15,30 @@ from fastapi.staticfiles import StaticFiles
 from plexapi.exceptions import Unauthorized
 from sqlalchemy.orm import Session
 
-app = FastAPI(title="my app root")
+
+# Start a background thread to process the task queue
+# This is necessary because the task queue is a blocking queue
+# and we don't want to block the main thread
+# We use a context manager to start the thread when the app starts
+# and stop the thread when the app stops
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_event_loop()
+    thread = threading.Thread(target=tasks.process_task_queue)
+    thread.start()
+    yield
+    # Stop the thread when the app stops
+    loop.call_soon_threadsafe(tasks.stop_task_queue)
+
+
+app = FastAPI(title="my app root", lifespan=lifespan)
 api_app = FastAPI()
+
 
 origins = [
     "http://localhost",
     "http://localhost:3000",
+    "http://localhost:8000",
     "http://borth",
     "http://borth:3000",
     "http://borth:8000",
@@ -65,6 +87,14 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     return crud.delete_task(db=db, task_id=task_id)
 
 
+@api_app.patch(
+    "/tasks/{task_id}/",
+    response_model=schemas.Task,
+)
+def update_task(task_id: int, task: schemas.TaskUpdate, db: Session = Depends(get_db)):
+    return crud.update_task(db=db, task_id=task_id, task=task)
+
+
 @api_app.get("/storage_devices/", response_model=list[schemas.StorageDevice])
 def read_storage_devices(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
@@ -94,6 +124,11 @@ def read_files(
 )
 def update_file(file_id: int, file: schemas.FileUpdate, db: Session = Depends(get_db)):
     return crud.update_file(db=db, file_id=file_id, file=file)
+
+
+@api_app.patch("/storage_devices/{device_id}/files/", response_model=list[int])
+def update_files_status(data: schemas.FileStatusUpdate, db: Session = Depends(get_db)):
+    return crud.update_files_status(db=db, status=data.status, file_ids=data.file_ids)
 
 
 @api_app.get("/storage_paths/")
@@ -136,6 +171,7 @@ def get_plex_servers():
 app.mount("/api", api_app)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

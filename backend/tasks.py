@@ -1,21 +1,27 @@
+import asyncio
 import logging
 import math
 import os
 import queue
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from time import sleep
 
 import database
 import sqlalchemy as sa
-import zmq
 from models import File, FileStatus, StorageDevice, Task, TaskStatus, get_local_path
 from plex_api import get_client
 from plexapi.exceptions import NotFound
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.DEBUG)
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+stream_handler.setFormatter(logging.Formatter(log_format))
+logger.addHandler(stream_handler)
 
-q = queue.Queue()
+MAX_WORKERS = 10
 
 
 try:
@@ -24,85 +30,116 @@ except:
     O_BINARY = 0
 READ_FLAGS = os.O_RDONLY | O_BINARY
 WRITE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | O_BINARY
-BUFFER_SIZE = 128 * 1024
+BUFFER_SIZE = 1024 * 1024 * 10  # 10MB
 
 
-def start_task(task_id):
-    context = zmq.Context()
-    #  Socket to talk to server
-    socket = context.socket(zmq.REQ)
-    socket.connect("tcp://localhost:5555")
-    socket.send(task_id.to_bytes(2, "little", signed=False))
-    message = socket.recv()
+# Task queue using a thread-safe queue
+task_queue = queue.Queue()
 
 
-def worker():
-    while True:
-        task_id = q.get()
-        session = database.SessionLocal()
+# Function to add a task to the queue
+def add_task_to_queue(task_id):
+    task_queue.put(task_id)
+
+
+def worker(task_id):
+    logger.info("Worker started for task {}".format(task_id))
+    with database.SessionLocal() as session:
         task = session.execute(
-            select(Task).where(Task.id == task_id)
+            sa.select(Task).where(Task.id == task_id)
         ).scalar_one_or_none()
         if task is None:
             logger.warning("Task {} not found".format(task_id))
-            q.task_done()
-            continue
+            task_queue.task_done()
         logger.info("Starting task {}".format(task.name))
+        task.progress = 0
         task.status = TaskStatus.RUNNING
         task.started = sa.func.now()
-        session.commit()
         args = task.args
-        session.close()
+        session.commit()
+        logger.debug("Task args: {}".format(args))
         try:
-            if task.func == "transfer_file":
-                transfer_file(*args, task_id)
-            elif task.func == "get_files":
-                get_files(*args, task_id)
-            elif task.func == "check_files":
-                check_files(*args, task_id)
-            elif task.func == "remove_empty_folders":
-                remove_empty_folders(*args)
-            elif task.func == "transfer_files":
-                transfer_files(*args, task_id)
-            elif task.func == "eject_sd":
-                eject_sd(*args)
+            func = globals().get(task.func)
+            if func is not None and callable(func):
+                for progress, increment, total, status in func(*args):
+                    if task.status == TaskStatus.STOPPED:
+                        logger.info("Task {} stopped".format(task.name))
+                        break
+                    if progress:
+                        task.progress = progress
+                    elif increment:
+                        task.progress += increment
+                    if total:
+                        task.total = total
+                    task.status = status
+                    if status == TaskStatus.SUCCESS:
+                        task.finished = sa.func.now()
+                    session.commit()
             else:
                 logger.warning("Unknown function {}".format(task.func))
         except Exception as e:
             logger.error("Task failed {}".format(task.name))
             logger.exception(e)
-            session = database.SessionLocal()
-            task = session.execute(
-                select(Task).where(Task.id == task_id)
-            ).scalar_one_or_none()
             if task is None:
                 logger.warning("Task {} not found".format(task_id))
-                q.task_done()
-                continue
+                task_queue.task_done()
             task.finished = sa.func.now()
             task.status = TaskStatus.FAILED
             session.commit()
-            q.task_done()
-            continue
-        session = database.SessionLocal()
-        task = session.execute(
-            select(Task).where(Task.id == task_id)
-        ).scalar_one_or_none()
-        task.finished = sa.func.now()
-        task.status = TaskStatus.SUCCESS
+            task_queue.task_done()
+
+
+# Function to retrieve and process tasks from the queue
+def process_task_queue():
+    logger.info("Fixing Old Tasks")
+    with database.SessionLocal() as session:
+        session.execute(
+            sa.update(Task)
+            .where(Task.status != TaskStatus.SUCCESS)
+            .values(status=TaskStatus.PENDING, progress=0)
+        )
         session.commit()
-        session.close()
-        q.task_done()
+        # add pending tasks to queue
+        tasks = (
+            session.execute(sa.select(Task).where(Task.status == TaskStatus.PENDING))
+            .scalars()
+            .all()
+        )
+        for task in tasks:
+            add_task_to_queue(task.id)
+            logger.info("Added task {} to queue".format(task.name))
+    logger.info("Starting Task Queue")
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        while True and threading.main_thread().is_alive():
+            try:
+                task_id = task_queue.get(block=False)
+                logger.info("Starting task {}".format(task_id))
+                executor.submit(worker, task_id)
+                logger.info("Task {} submitted".format(task_id))
+            except queue.Empty:
+                # logger.debug("Queue is empty")
+                sleep(0.1)
+            except KeyboardInterrupt:
+                logger.info("Stopping task queue")
+                executor.shutdown(wait=False)
+                return
+            except Exception as e:
+                logger.error("Task failed")
+                logger.exception(e)
+                sleep(1)
 
 
-def get_files(sd_id, task_id):
+# Stop the task queue
+def stop_task_queue():
+    task_queue.join()
+
+
+def get_files(sd_id):
     plex_client = get_client()
+    logger.info("Getting files for {}".format(sd_id))
     with database.SessionLocal() as session:
         sd = session.execute(
-            select(StorageDevice).where(StorageDevice.id == sd_id)
-        ).scalar_one_or_none()
-        task = session.execute(
-            select(Task).where(Task.id == task_id)
+            sa.select(StorageDevice).where(StorageDevice.id == sd_id)
         ).scalar_one_or_none()
         to_download = list()
         if sd.sync_on_deck:
@@ -111,21 +148,20 @@ def get_files(sd_id, task_id):
             to_download.extend(plex_client.continueWatching())
         if sd.sync_playlist:
             to_download.extend(plex_client.playlist(sd.sync_playlist).items())
-        task.total = len(to_download)
         session.commit()
         for item in to_download:
             rating_key = item.ratingKey
             file = session.execute(
-                select(File).where(
+                sa.select(File).where(
                     File.storage_device_id == sd.id, File.rating_key == rating_key
                 )
             ).scalar_one_or_none()
             if file is None:
                 local_path = get_local_path(item.media[0].parts[0].file)
                 if item.type == "episode":
-                    title = "{series} | {seasonepisode} | {title}".format(
+                    title = "{series} | {season_episode} | {title}".format(
                         series=item.grandparentTitle,
-                        seasonepisode=item.seasonEpisode,
+                        season_episode=item.seasonEpisode,
                         title=item.title,
                     )
                 else:
@@ -142,6 +178,9 @@ def get_files(sd_id, task_id):
                 logger.info("File added for {}".format(item.title))
             else:
                 logger.info("File already exists for {}".format(item.title))
+                file.remote_path = item.media[0].parts[0].file
+                file.file_size = os.path.getsize(file.local_path)
+                session.commit()
                 if (
                     file.status == FileStatus.WATCHED
                     and not item.isPlayed
@@ -156,9 +195,8 @@ def get_files(sd_id, task_id):
                         and to_download.count(episode) == 0
                     ):
                         to_download.append(episode)
-            task.progress += 1
-            task.total = len(to_download)
-            session.commit()
+            yield None, 1, len(to_download), TaskStatus.RUNNING
+        yield None, 0, None, TaskStatus.SUCCESS
 
 
 def remove_empty_folders(path):
@@ -168,18 +206,15 @@ def remove_empty_folders(path):
             os.rmdir(path)
 
 
-def check_files(sd_id, task_id):
+def check_files(sd_id):
     plex_client = get_client()
     with database.SessionLocal() as session:
         sd = session.execute(
-            select(StorageDevice).where(StorageDevice.id == sd_id)
-        ).scalar_one_or_none()
-        task = session.execute(
-            select(Task).where(Task.id == task_id)
+            sa.select(StorageDevice).where(StorageDevice.id == sd_id)
         ).scalar_one_or_none()
         files = (
             session.execute(
-                select(File).where(
+                sa.select(File).where(
                     File.storage_device_id == sd.id
                     and File.status != FileStatus.MISSING
                 )
@@ -187,38 +222,42 @@ def check_files(sd_id, task_id):
             .scalars()
             .all()
         )
-        task.total = len(files)
-        session.commit()
+        yield 0, 0, len(files), TaskStatus.RUNNING
         for file in files:
             try:
                 item = plex_client.library.fetchItem(file.rating_key)
                 if item.type == "episode":
-                    file.title = "{series} | {seasonepisode} | {title}".format(
+                    file.title = "{series} | {season_episode} | {title}".format(
                         series=item.grandparentTitle,
-                        seasonepisode=item.seasonEpisode,
+                        season_episode=item.seasonEpisode,
                         title=item.title,
                     )
                 session.commit()
                 if os.path.exists(file.storage_path):
                     if item.isPlayed:
-                        logger.info("Removing '{}' as it's been played".format(file))
+                        logger.info(
+                            "Removing '{}' as it's been played".format(file.title)
+                        )
                         os.remove(file.storage_path)
                         file.status = FileStatus.WATCHED
                     else:
                         if os.path.getsize(file.storage_path) != file.file_size:
                             logger.info(
-                                "Removing '{}' as it's been changed".format(file)
+                                "Removing '{}' as it's been changed".format(file.title)
                             )
                             os.remove(file.storage_path)
                             file.status = FileStatus.MISSING
                         else:
                             logger.info(
-                                "Keeping '{}' as it's not been played".format(file)
+                                "Keeping '{}' as it's not been played".format(
+                                    file.title
+                                )
                             )
-                            file.status = FileStatus.SYNCED
+                            if file.status != FileStatus.IGNORED:
+                                file.status = FileStatus.SYNCED
                 else:
                     if item.isPlayed:
-                        logger.info("Marking '{}' as played".format(file))
+                        logger.info("Marking '{}' as played".format(file.title))
                         item.markPlayed()
                         file.status = FileStatus.WATCHED
                         try:
@@ -227,11 +266,11 @@ def check_files(sd_id, task_id):
                             pass
                     else:
                         logger.info(
-                            "Adding '{}' as it's missing been played".format(file)
+                            "Adding '{}' as it's missing been played".format(file.title)
                         )
                         file.status = FileStatus.MISSING
             except NotFound:
-                logger.info("Removing '{}' as it's been deleted".format(file))
+                logger.info("Removing '{}' as it's been deleted".format(file.title))
                 try:
                     os.remove(file.storage_path)
                     file.status = FileStatus.WATCHED
@@ -240,94 +279,106 @@ def check_files(sd_id, task_id):
                         "{} is not present on the disk".format(file.storage_path)
                     )
                     session.delete(file)
-            task.progress += 1
+            yield None, 1, None, TaskStatus.RUNNING
             session.commit()
         remove_empty_folders(sd.base_path)
+        yield None, None, None, TaskStatus.SUCCESS
 
 
-def transfer_file(file_id, task_id):
+def transfer_file(file_id):
     with database.SessionLocal() as session:
         file = session.execute(
-            select(File).where(File.id == file_id)
-        ).scalar_one_or_none()
-        task = session.execute(
-            select(Task).where(Task.id == task_id)
+            sa.select(File).where(File.id == file_id)
         ).scalar_one_or_none()
         local_path = file.local_path
         storage_path = file.storage_path
         if not os.path.exists(os.path.dirname(storage_path)):
             os.makedirs(os.path.dirname(storage_path))
-        task.total = os.path.getsize(local_path)
-        task.progress = 0
+        total = os.path.getsize(local_path)
+        yield None, None, total, TaskStatus.RUNNING
         session.commit()
-        session.close()
-
-    try:
-        fin = os.open(local_path, READ_FLAGS)
-        stat = os.fstat(fin)
-        fout = os.open(storage_path, WRITE_FLAGS, stat.st_mode)
-        for i, x in enumerate(iter(lambda: os.read(fin, BUFFER_SIZE), "")):
-            os.write(fout, x)
-            if i % 100 == 0:
-                session = database.SessionLocal()
-                task = session.execute(
-                    select(Task).where(Task.id == task_id)
-                ).scalar_one_or_none()
-                task.progress = os.path.getsize(storage_path)
-                session.commit()
-                session.close()
-    finally:
         try:
-            os.close(fin)
-        except:
-            pass
-        try:
-            os.close(fout)
-        except:
-            pass
-    logger.info("Finished transfering {}".format(local_path))
-    session = database.SessionLocal()
-    task = session.execute(select(Task).where(Task.id == task_id)).scalar_one_or_none()
-    file = session.execute(select(File).where(File.id == file_id)).scalar_one_or_none()
-    task.progress = task.total
-    file.status = FileStatus.SYNCED
-    session.commit()
-    logger.info("Finished syncing {}".format(local_path))
+            file_in = os.open(local_path, READ_FLAGS)
+            stat = os.fstat(file_in)
+            file_out = os.open(storage_path, WRITE_FLAGS, stat.st_mode)
+            for i, x in enumerate(iter(lambda: os.read(file_in, BUFFER_SIZE), b"")):
+                os.write(file_out, x)
+                # for every 1% update the transfer
+                if i % math.ceil(total / 100 / BUFFER_SIZE) == 0:
+                    progress = os.lseek(file_in, 0, os.SEEK_CUR)
+                    logger.info(
+                        "{file} {progress:0.2%}.{i}".format(
+                            file=local_path, progress=progress / total, i=i
+                        )
+                    )
+                    yield progress, None, None, TaskStatus.RUNNING
+            logger.info("Finished transferring {}".format(local_path))
+            yield total, None, None, TaskStatus.SUCCESS
+            session.commit()
+            logger.info("Finished syncing {}".format(local_path))
+        except Exception as e:
+            logger.error("Unable to transfer {}".format(local_path))
+            logger.exception(e)
+            file.status = FileStatus.MISSING
+            session.commit()
+            yield 0, None, None, TaskStatus.FAILED
+        finally:
+            try:
+                os.close(file_in)
+            except Exception as e:
+                logger.error("Unable to close file_in")
+                logger.exception(e)
+            try:
+                os.close(file_out)
+            except Exception as e:
+                logger.error("Unable to close file_out")
+                logger.exception(e)
 
 
 def eject_sd(sd_id):
     with database.SessionLocal() as session:
+        yield 0, 1, TaskStatus.RUNNING
         sd = session.execute(
-            select(StorageDevice).where(StorageDevice.id == sd_id)
+            sa.select(StorageDevice).where(StorageDevice.id == sd_id)
         ).scalar_one_or_none()
         sd.eject()
         session.commit()
+        yield 1, 1, TaskStatus.SUCCESS
 
 
-def transfer_files(sd_id, task_id):
+def transfer_files(sd_id):
     with database.SessionLocal() as session:
         sd = session.execute(
-            select(StorageDevice).where(StorageDevice.id == sd_id)
-        ).scalar_one_or_none()
-        p_task = session.execute(
-            select(Task).where(Task.id == task_id)
+            sa.select(StorageDevice).where(StorageDevice.id == sd_id)
         ).scalar_one_or_none()
         files = (
             session.execute(
-                select(File).where(
+                sa.select(File).where(
                     File.storage_device_id == sd.id, File.status == FileStatus.MISSING
                 )
             )
             .scalars()
             .all()
         )
-        p_task.total = len(files)
-        p_task.progress = 0
-        session.commit()
+        file_ids = [file.id for file in files]
+        return transfer_some_files(sd_id, file_ids)
+
+
+def transfer_some_files(sd_id, file_ids):
+    with database.SessionLocal() as session:
+        sd = session.execute(
+            sa.select(StorageDevice).where(StorageDevice.id == sd_id)
+        ).scalar_one_or_none()
+        files = (
+            session.execute(sa.select(File).where(File.id.in_(file_ids)))
+            .scalars()
+            .all()
+        )
+        yield 0, None, len(files), TaskStatus.RUNNING
         for file in files:
             if not os.path.exists(file.local_path):
                 logger.error(
-                    "Unalbe to sync {} as it can't be found".format(file.local_path)
+                    "Unable to sync {} as it can't be found".format(file.local_path)
                 )
             if (not os.path.exists(file.storage_path)) or (
                 file.file_size != os.path.getsize(file.storage_path)
@@ -340,35 +391,11 @@ def transfer_files(sd_id, task_id):
                     total=file.file_size,
                 )
                 session.add(task)
-                p_task.progress += 1
+
                 session.commit()
-                start_task(task.id)
+                add_task_to_queue(task.id)
             else:
                 file.status = FileStatus.SYNCED
                 session.commit()
-
-
-if __name__ == "__main__":
-    context = zmq.Context()
-    socket = context.socket(zmq.REP)
-    socket.bind("tcp://*:5555")
-    # Turn-on the worker thread.
-    with database.SessionLocal() as session:
-        (
-            session.execute(
-                sa.update(Task)
-                .where(Task.status == TaskStatus.RUNNING)
-                .values(status=TaskStatus.FAILED, progress=0)
-            )
-        )
-        session.commit()
-        # delete pending tasks
-
-    for i in range(3):
-        threading.Thread(target=worker, daemon=True).start()
-    while True:
-        #  Wait for next request from client
-        message = int.from_bytes(socket.recv(), "little", signed=False)
-        logger.info("Received request: %s" % message)
-        q.put(message)
-        socket.send(b"Received")
+            yield None, 1, None, TaskStatus.RUNNING
+        yield None, None, None, TaskStatus.SUCCESS

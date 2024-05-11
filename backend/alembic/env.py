@@ -1,6 +1,15 @@
+# ensure the models are imported
+import sys
 from logging.config import fileConfig
 
 from alembic import context
+
+sys.path = ["", ".."] + sys.path[
+    1:
+]  # set the path to recognize modules in the parent directory
+from database import Base
+
+target_metadata = Base.metadata
 from sqlalchemy import engine_from_config, pool
 
 # this is the Alembic Config object, which provides

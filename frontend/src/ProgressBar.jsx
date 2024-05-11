@@ -1,7 +1,7 @@
 import React from "react";
 
 const ProgressBar = ({ progress, total, barColor = "bg-blue-500" }) => (
-  <div className="w-full bg-gray-400 border border-white rounded">
+  <div className="w-full bg-gray-400 border border-white rounded overflow-hidden">
     <div
       className={`${barColor} h-full ${
         progress > 0 && progress !== total ? "animate-pulse" : ""

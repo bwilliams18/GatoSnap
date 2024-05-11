@@ -35,10 +35,45 @@ function App() {
           GatoSnap
         </h1>
       </div>
-      <div className="flex container mx-auto flex-col sm:flex-row">
+      <div className="flex container mx-auto flex-col sm:flex-col">
         {config?.auth_token && config?.server ? (
           <>
-            <div className="sm:w-1/2">
+            <div className="">
+              <div>
+                <h1 className="text-white text-center text-2xl font-semibold">
+                  Tasks
+                </h1>
+                <div className="flex flex-row overflow-x-auto">
+                  {tasks
+                    ?.filter(task => task.func !== "transfer_file")
+                    ?.sort((a, b) => -(a.progress - b.progress))
+                    ?.map(task => <TaskCard key={task.id} task={task} />) || (
+                    <p className="text-white text-center">No tasks running</p>
+                  )}
+                </div>
+              </div>
+              {
+                <div>
+                  <h2 className="text-white text-center text-xl font-semibold">
+                    Transfers
+                  </h2>
+                  <div className="flex flex-row overflow-x-auto">
+                    {tasks
+                      ?.filter(task => task.func === "transfer_file")
+                      ?.sort(
+                        (a, b) =>
+                          a.status === "running" && b.status !== "running" && -1
+                      )
+                      ?.map(task => <TaskCard key={task.id} task={task} />) || (
+                      <p className="text-white text-center">
+                        No transfers running
+                      </p>
+                    )}
+                  </div>
+                </div>
+              }
+            </div>
+            <div className="">
               <h1 className="text-white text-center text-2xl font-semibold">
                 Storage Devices
               </h1>
@@ -49,38 +84,6 @@ function App() {
                   storageDevice={storageDevice}
                 />
               ))}
-            </div>
-            <div className="sm:w-1/2">
-              <h1 className="text-white text-center text-2xl font-semibold">
-                Tasks
-              </h1>
-              {tasks
-                ?.filter(task => task.func !== "transfer_file")
-                ?.sort((a, b) => -(a.progress - b.progress))
-                ?.map(task => <TaskCard key={task.id} task={task} />) || (
-                <p className="text-white text-center">No tasks running</p>
-              )}
-              {
-                <div>
-                  <h2 className="text-white text-center text-xl font-semibold">
-                    Transfers
-                  </h2>
-                  {tasks
-                    ?.filter(task => task.func === "transfer_file")
-                    ?.filter(
-                      task => task.progress !== task.total || task.total === 0
-                    )
-                    ?.sort(
-                      (a, b) =>
-                        a.status === "running" && b.status !== "running" && -1
-                    )
-                    ?.map(task => <TaskCard key={task.id} task={task} />) || (
-                    <p className="text-white text-center">
-                      No transfers running
-                    </p>
-                  )}
-                </div>
-              }
             </div>
           </>
         ) : !config?.auth_token ? (

@@ -24,6 +24,7 @@ class TaskStatus(enum.Enum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    STOPPED = "stopped"
 
 
 class Task(Base):
@@ -126,6 +127,7 @@ class FileStatus(enum.Enum):
     MISSING = "missing"
     SYNCED = "synced"
     WATCHED = "watched"
+    IGNORED = "ignored"
 
 
 def get_local_path(remote_path):

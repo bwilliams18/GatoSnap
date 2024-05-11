@@ -1,17 +1,36 @@
 import moment from "moment";
 import React from "react";
 import ProgressBar from "./ProgressBar";
-import { useDeleteTask } from "./query";
+import { useDeleteTask, useUpdateTask } from "./query";
 import { bitsToGB } from "./util";
 
 const TaskCard = ({ task }) => {
   const { mutate: deleteTask } = useDeleteTask();
-  console.log(task.started);
+  const { mutate: updateTask } = useUpdateTask();
   return (
-    <div className="flex flex-col rounded bg-slate-700 p-3 m-2 gap-y-1">
+    <div className="flex flex-col rounded bg-slate-700 p-3 m-2 gap-y-1 min-w-fit overflow-hidden ">
       <div className="flex gap-x-1">
-        <b>{task.name}</b>
-        {task.status !== "running" && (
+        <div className="max-w-xs truncate">
+          <b>{task.name}</b>
+        </div>
+        {task.status === "stopped" && (
+          <button
+            className="text-white font-bold px-1 text-sm rounded bg-green-500 hover:bg-green-700"
+            onClick={() => {
+              updateTask({ id: task.id, status: "pending" });
+            }}>
+            Restart
+          </button>
+        )}
+        {task.status === "running" ? (
+          <button
+            className="text-white font-bold px-1 text-sm rounded bg-red-500 hover:bg-red-700"
+            onClick={() => {
+              updateTask({ id: task.id, status: "stopped" });
+            }}>
+            Stop
+          </button>
+        ) : (
           <button
             className={`text-white font-bold px-1 text-sm rounded
              ${

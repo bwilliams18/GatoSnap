@@ -69,6 +69,18 @@ export const useCreateTask = () => {
   });
 };
 
+export const useUpdateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    ({ id, status }) => gatoClient.patch(`/tasks/${id}/`, { status }),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries("tasks");
+      },
+    }
+  );
+};
+
 export const useDeleteTask = () => {
   const queryClient = useQueryClient();
   return useMutation(id => gatoClient.delete(`/tasks/${id}/`), {
@@ -113,6 +125,22 @@ export const useUpdateFile = () => {
           status,
         }
       ),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries("files");
+      },
+    }
+  );
+};
+
+export const useUpdateFilesStatus = () => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    ({ storage_device_id, status, file_ids }) =>
+      gatoClient.patch(`/storage_devices/${storage_device_id}/files/`, {
+        status,
+        file_ids,
+      }),
     {
       onSuccess: () => {
         queryClient.invalidateQueries("files");

@@ -2,7 +2,7 @@ import models
 import schemas
 from plex_api import get_account, get_client, save_auth_token, save_base_url
 from sqlalchemy.orm import Session
-from tasks import start_task
+from tasks import add_task_to_queue
 
 
 def get_tasks(db: Session, skip: int = 0, limit: int = 100):
@@ -15,7 +15,7 @@ def create_task(db: Session, task):
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
-    start_task(db_task.id)
+    add_task_to_queue(db_task.id)
     db.refresh(db_task)
     return db_task
 
@@ -25,6 +25,16 @@ def delete_task(db: Session, task_id: int):
     db.delete(db_task)
     db.commit()
     return True
+
+
+def update_task(db: Session, task_id: int, task: schemas.TaskUpdate):
+    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    db_task.status = task.status
+    db.commit()
+    db.refresh(db_task)
+    if db_task.status == schemas.TaskStatus.PENDING:
+        add_task_to_queue(db_task.id)
+    return db_task
 
 
 def get_storage_devices(db: Session, skip: int = 0, limit: int = 100):
@@ -57,6 +67,16 @@ def update_file(db: Session, file_id: int, file: schemas.FileUpdate):
     db.commit()
     db.refresh(db_file)
     return db_file
+
+
+def update_files_status(db: Session, status: schemas.FileStatus, file_ids: list[int]):
+    db_files = (
+        db.query(models.File)
+        .filter(models.File.id.in_(file_ids))
+        .update({"status": status})
+    )
+    db.commit()
+    return file_ids
 
 
 def check_config():
