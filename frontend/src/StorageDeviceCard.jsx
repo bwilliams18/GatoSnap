@@ -9,6 +9,7 @@ import {
 } from "./query";
 import { bitsToGB } from "./util";
 // Title match "{series} | s{season}e{episode} | {title}";
+import { flatten } from "lodash";
 const title_match =
   /(?<series>.+) \| s(?<season>\d+)e(?<episode>\d+) \| (?<title>.+)/;
 
@@ -366,10 +367,18 @@ const StorageDeviceCard = ({ storageDevice }) => {
             {/* {filteredFiles?.length > 0 && ( */}
             <button
               className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded"
-              // onClick={() =>
-              //   setSelectedFiles(filteredFiles.map(file => file.id))
-              // }
-            >
+              onClick={() => {
+                setSelectedFiles([
+                  ...groupedFiles
+                    ?.filter(file => file.type === "file")
+                    ?.map(file => file.id),
+                  ...flatten(
+                    groupedFiles
+                      ?.filter(file => file.type === "series")
+                      ?.map(file => file.filtered_file_ids)
+                  ),
+                ]);
+              }}>
               Select
             </button>
             {/* )} */}
