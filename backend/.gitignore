@@ -165,3 +165,4 @@ static/
 auth_token.yml
 base_url.yml
 tempfile
+database.db-journal
