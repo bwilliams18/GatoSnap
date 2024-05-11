@@ -10,6 +10,7 @@ import {
   useGetStorageDevices,
   useGetTasks,
 } from "./query";
+import { bitsToGB } from "./util";
 
 function App() {
   const {
@@ -38,12 +39,13 @@ function App() {
       <div className="flex container mx-auto flex-col sm:flex-col">
         {config?.auth_token && config?.server ? (
           <>
-            <div className="">
-              <div>
-                <h1 className="text-white text-center text-2xl font-semibold">
-                  Tasks
-                </h1>
-                <div className="flex flex-row overflow-x-auto">
+            <div className="flex flex-row">
+              <div className="w-1/2">
+                <h2 className="text-white text-center text-2xl font-semibold">
+                  Tasks (
+                  {tasks?.filter(task => task.func !== "transfer_file").length})
+                </h2>
+                <div className="flex flex-col overflow-y-auto max-h-[40vh]">
                   {tasks
                     ?.filter(task => task.func !== "transfer_file")
                     ?.sort((a, b) => -(a.progress - b.progress))
@@ -52,31 +54,64 @@ function App() {
                   )}
                 </div>
               </div>
-              {
-                <div>
-                  <h2 className="text-white text-center text-xl font-semibold">
-                    Transfers
-                  </h2>
-                  <div className="flex flex-row overflow-x-auto">
-                    {tasks
+              <div className="w-1/2">
+                <h2 className="text-white text-center text-2xl font-semibold">
+                  Transfers
+                </h2>
+                <div className="mx-2">
+                  {tasks?.filter(task => task.func === "transfer_file").length}{" "}
+                  Transfers |{" "}
+                  {
+                    tasks
                       ?.filter(task => task.func === "transfer_file")
-                      ?.sort(
-                        (a, b) =>
-                          a.status === "running" && b.status !== "running" && -1
+                      ?.filter(task =>
+                        ["running", "pending"].includes(task.status)
+                      ).length
+                  }{" "}
+                  To Do |{" "}
+                  {
+                    tasks
+                      ?.filter(task => task.func === "transfer_file")
+                      ?.filter(task => task.status === "success").length
+                  }{" "}
+                  Successful |{" "}
+                  {bitsToGB(
+                    tasks
+                      ?.filter(task => task.func === "transfer_file")
+                      ?.filter(task =>
+                        ["running", "pending"].includes(task.status)
                       )
-                      ?.map(task => <TaskCard key={task.id} task={task} />) || (
-                      <p className="text-white text-center">
-                        No transfers running
-                      </p>
-                    )}
-                  </div>
+                      .reduce((acc, task) => acc + task.progress, 0)
+                  )}{" "}
+                  /{" "}
+                  {bitsToGB(
+                    tasks
+                      ?.filter(task => task.func === "transfer_file")
+                      ?.filter(task =>
+                        ["running", "pending"].includes(task.status)
+                      )
+                      .reduce((acc, task) => acc + task.total, 0)
+                  )}
                 </div>
-              }
+                <div className="overflow-y-auto max-h-[40vh]">
+                  {tasks
+                    ?.filter(task => task.func === "transfer_file")
+                    ?.sort(
+                      (a, b) =>
+                        a.status === "running" && b.status !== "running" && -1
+                    )
+                    ?.map(task => <TaskCard key={task.id} task={task} />) || (
+                    <p className="text-white text-center">
+                      No transfers running
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="">
-              <h1 className="text-white text-center text-2xl font-semibold">
+              <h2 className="text-white text-center text-2xl font-semibold">
                 Storage Devices
-              </h1>
+              </h2>
               <CreateStorageDevice />
               {storageDevices?.map(storageDevice => (
                 <StorageDeviceCard
