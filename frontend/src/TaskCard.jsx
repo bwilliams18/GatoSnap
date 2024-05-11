@@ -8,31 +8,32 @@ const TaskCard = ({ task }) => {
   const { mutate: deleteTask } = useDeleteTask();
   const { mutate: updateTask } = useUpdateTask();
   return (
-    <div className="flex flex-col rounded bg-slate-700 p-3 m-2 gap-y-1 min-w-fit overflow-hidden ">
+    <div className="flex flex-col rounded bg-slate-700 p-3 m-2 gap-y-1 min-w-fit overflow-hidden">
       <div className="flex gap-x-1">
-        <div className="max-w-xs truncate">
+        <div className="max-w-xs truncate grow">
           <b>{task.name}</b>
         </div>
-        {task.status === "stopped" && (
-          <button
-            className="text-white font-bold px-1 text-sm rounded bg-green-500 hover:bg-green-700"
-            onClick={() => {
-              updateTask({ id: task.id, status: "pending" });
-            }}>
-            Restart
-          </button>
-        )}
-        {task.status === "running" ? (
-          <button
-            className="text-white font-bold px-1 text-sm rounded bg-red-500 hover:bg-red-700"
-            onClick={() => {
-              updateTask({ id: task.id, status: "stopped" });
-            }}>
-            Stop
-          </button>
-        ) : (
-          <button
-            className={`text-white font-bold px-1 text-sm rounded
+        <div className="ml-auto">
+          {task.status === "stopped" && (
+            <button
+              className="text-white font-bold px-1 text-sm rounded bg-green-500 hover:bg-green-700"
+              onClick={() => {
+                updateTask({ id: task.id, status: "pending" });
+              }}>
+              Restart
+            </button>
+          )}
+          {task.status === "running" ? (
+            <button
+              className="text-white font-bold px-1 text-sm rounded bg-red-500 hover:bg-red-700"
+              onClick={() => {
+                updateTask({ id: task.id, status: "stopped" });
+              }}>
+              Stop
+            </button>
+          ) : (
+            <button
+              className={`text-white font-bold px-1 text-sm rounded
              ${
                task.status === "success"
                  ? "bg-green-500 hover:bg-green-700"
@@ -41,12 +42,13 @@ const TaskCard = ({ task }) => {
                  : "bg-blue-500 hover:bg-blue-700"
              }
             `}
-            onClick={() => {
-              deleteTask(task.id);
-            }}>
-            {task.status === "success" ? "Clear" : "Cancel"}
-          </button>
-        )}
+              onClick={() => {
+                deleteTask(task.id);
+              }}>
+              {task.status === "success" ? "Clear" : "Cancel"}
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex">
         <ProgressBar
